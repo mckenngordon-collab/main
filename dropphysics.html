@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pliable Drop Physics</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0b0e14;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  #wrap {
+    position: relative;
+  }
+  canvas {
+    display: block;
+    border-radius: 10px;
+    box-shadow: 0 0 40px rgba(80,140,255,0.15);
+    background: linear-gradient(to bottom, #0d1220 0%, #131a2b 60%, #182238 100%);
+  }
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 14px;
+    color: #7fa8ff;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="900" height="600"></canvas>
+  <div id="hud">custom physics: gravity · 0.5 restitution · pliable squash · circle-circle collision · resets on cycle</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// ---------- CUSTOM PHYSICS CONSTANTS ----------
+const GRAVITY = 0.45;
+const RESTITUTION = 0.5;      // bounce energy retained
+const FRICTION = 0.985;       // tangential damping on ground contact
+const AIR_DAMPING = 0.999;
+const CYCLE_MS = 5000;        // time before reset
+const CIRCLE_COUNT = 20;
+const TERRAIN_STEP = 4;
+
+// ---------- TERRAIN GENERATION (irregular, sloped) ----------
+let terrain = [];
+
+function buildTerrain() {
+  terrain = [];
+  const baseY = H * (0.68 + Math.random() * 0.08);
+  const f1 = 0.004 + Math.random() * 0.004;
+  const f2 = 0.011 + Math.random() * 0.006;
+  const f3 = 0.025 + Math.random() * 0.01;
+  const a1 = 50 + Math.random() * 40;
+  const a2 = 20 + Math.random() * 18;
+  const a3 = 8 + Math.random() * 6;
+  const p1 = Math.random() * Math.PI * 2;
+  const p2 = Math.random() * Math.PI * 2;
+  const p3 = Math.random() * Math.PI * 2;
+
+  for (let x = 0; x <= W; x += TERRAIN_STEP) {
+    const y = baseY
+      + Math.sin(x * f1 + p1) * a1
+      + Math.sin(x * f2 + p2) * a2
+      + Math.sin(x * f3 + p3) * a3;
+    terrain.push(y);
+  }
+}
+
+function terrainY(x) {
+  x = Math.max(0, Math.min(W - 0.001, x));
+  const idx = x / TERRAIN_STEP;
+  const i0 = Math.floor(idx);
+  const i1 = Math.min(terrain.length - 1, i0 + 1);
+  const t = idx - i0;
+  return terrain[i0] * (1 - t) + terrain[i1] * t;
+}
+
+function terrainNormal(x) {
+  const d = 3;
+  const yL = terrainY(x - d);
+  const yR = terrainY(x + d);
+  // tangent vector along the slope
+  let tx = 2 * d, ty = yR - yL;
+  const len = Math.hypot(tx, ty) || 1;
+  tx /= len; ty /= len;
+  // perpendicular, pick the one pointing upward (negative y)
+  let nx = -ty, ny = tx;
+  if (ny > 0) { nx = -nx; ny = -ny; }
+  return { x: nx, y: ny };
+}
+
+// ---------- CIRCLES ----------
+let circles = [];
+
+function spawnCircles() {
+  circles = [];
+  for (let i = 0; i < CIRCLE_COUNT; i++) {
+    const r = 9 + Math.random() * 8;
+    circles.push({
+      x: 40 + Math.random() * (W - 80),
+      y: -20 - Math.random() * 260,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: 0,
+      r: r,
+      baseR: r,
+      hue: 190 + Math.random() * 140,
+      squash: 0,        // 0 = round, >0 = deformed
+      angle: 0,         // orientation of squash (radians)
+      settleTimer: 0
+    });
+  }
+}
+
+function resolveTerrainCollision(c) {
+  const groundY = terrainY(c.x);
+  const penetration = (c.y + c.r) - groundY;
+  if (penetration > 0) {
+    const n = terrainNormal(c.x);
+    // push circle out along the normal
+    c.x += n.x * penetration;
+    c.y += n.y * penetration;
+
+    const vDotN = c.vx * n.x + c.vy * n.y;
+    if (vDotN < 0) {
+      // impact speed used for deformation + bounce
+      const impactSpeed = Math.abs(vDotN);
+      c.vx -= (1 + RESTITUTION) * vDotN * n.x;
+      c.vy -= (1 + RESTITUTION) * vDotN * n.y;
+
+      // tangential friction
+      const tx = -n.y, ty = n.x;
+      const vDotT = c.vx * tx + c.vy * ty;
+      const newVDotT = vDotT * FRICTION;
+      c.vx = n.x * (c.vx * n.x + c.vy * n.y) + tx * newVDotT;
+      c.vy = n.y * (c.vx * n.x + c.vy * n.y) + ty * newVDotT;
+
+      c.squash = Math.min(0.85, impactSpeed / 11);
+      c.angle = Math.atan2(n.y, n.x) + Math.PI / 2;
+    }
+  }
+}
+
+function resolveCircleCollisions() {
+  for (let i = 0; i < circles.length; i++) {
+    for (let j = i + 1; j < circles.length; j++) {
+      const a = circles[i], b = circles[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy) || 0.001;
+      const minDist = a.r + b.r;
+      if (dist < minDist) {
+        const overlap = (minDist - dist) / 2;
+        const nx = dx / dist, ny = dy / dist;
+
+        // positional correction (each pushed apart half the overlap)
+        a.x -= nx * overlap;
+        a.y -= ny * overlap;
+        b.x += nx * overlap;
+        b.y += ny * overlap;
+
+        // relative velocity along normal
+        const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+        const velAlongNormal = rvx * nx + rvy * ny;
+        if (velAlongNormal < 0) {
+          const impactSpeed = Math.abs(velAlongNormal);
+          const impulse = -(1 + RESTITUTION) * velAlongNormal / 2;
+          a.vx -= impulse * nx;
+          a.vy -= impulse * ny;
+          b.vx += impulse * nx;
+          b.vy += impulse * ny;
+
+          const s = Math.min(0.7, impactSpeed / 12);
+          a.squash = Math.max(a.squash, s);
+          b.squash = Math.max(b.squash, s);
+          a.angle = Math.atan2(ny, nx) + Math.PI / 2;
+          b.angle = a.angle;
+        }
+      }
+    }
+  }
+}
+
+function update() {
+  for (const c of circles) {
+    c.vy += GRAVITY;
+    c.vx *= AIR_DAMPING;
+    c.vy *= AIR_DAMPING;
+    c.x += c.vx;
+    c.y += c.vy;
+
+    // side walls
+    if (c.x - c.r < 0) { c.x = c.r; c.vx *= -RESTITUTION; }
+    if (c.x + c.r > W) { c.x = W - c.r; c.vx *= -RESTITUTION; }
+
+    resolveTerrainCollision(c);
+
+    // squash spring-back toward round
+    c.squash *= 0.86;
+  }
+  resolveCircleCollisions();
+}
+
+// ---------- RENDER ----------
+function drawTerrain() {
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += TERRAIN_STEP) {
+    ctx.lineTo(x, terrain[x / TERRAIN_STEP]);
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, H * 0.6, 0, H);
+  grad.addColorStop(0, '#243352');
+  grad.addColorStop(1, '#0e1524');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(0, terrain[0]);
+  for (let x = 0; x <= W; x += TERRAIN_STEP) {
+    ctx.lineTo(x, terrain[x / TERRAIN_STEP]);
+  }
+  ctx.strokeStyle = 'rgba(120,170,255,0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawCircle(c) {
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(c.angle);
+  const sx = 1 + c.squash * 0.6;
+  const sy = 1 - c.squash * 0.6;
+  ctx.scale(sx, sy);
+
+  const grad = ctx.createRadialGradient(-c.r * 0.3, -c.r * 0.3, c.r * 0.1, 0, 0, c.r);
+  grad.addColorStop(0, `hsl(${c.hue}, 95%, 78%)`);
+  grad.addColorStop(1, `hsl(${c.hue}, 85%, 48%)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, c.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawTerrain();
+  for (const c of circles) drawCircle(c);
+}
+
+// ---------- CYCLE / MAIN LOOP ----------
+let cycleStart = performance.now();
+
+function loop(now) {
+  if (now - cycleStart > CYCLE_MS) {
+    buildTerrain();
+    spawnCircles();
+    cycleStart = now;
+  }
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+buildTerrain();
+spawnCircles();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

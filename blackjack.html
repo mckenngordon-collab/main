@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Blackjack</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0b3d0b;
+      color: #fff;
+      text-align: center;
+    }
+    h1 {
+      margin-top: 20px;
+    }
+    #game {
+      margin: 20px auto;
+      max-width: 600px;
+      background: #145214;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px #000;
+    }
+    .hand {
+      margin: 10px 0;
+    }
+    .cards {
+      min-height: 40px;
+    }
+    .card {
+      display: inline-block;
+      margin: 5px;
+      padding: 8px 12px;
+      background: #fff;
+      color: #000;
+      border-radius: 4px;
+      box-shadow: 0 0 3px #000;
+      font-weight: bold;
+    }
+    #controls button {
+      margin: 5px;
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #dealBtn { background: #f0ad4e; }
+    #hitBtn { background: #5bc0de; }
+    #standBtn { background: #d9534f; }
+    #status {
+      margin-top: 15px;
+      font-size: 18px;
+      min-height: 24px;
+    }
+    #scoreboard {
+      margin-top: 15px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Blackjack</h1>
+  <div id="game">
+    <div class="hand" id="dealerHand">
+      <h2>Dealer</h2>
+      <div class="cards" id="dealerCards"></div>
+      <div>Score: <span id="dealerScore">0</span></div>
+    </div>
+
+    <hr />
+
+    <div class="hand" id="playerHand">
+      <h2>Player</h2>
+      <div class="cards" id="playerCards"></div>
+      <div>Score: <span id="playerScore">0</span></div>
+    </div>
+
+    <div id="controls">
+      <button id="dealBtn">Deal</button>
+      <button id="hitBtn" disabled>Hit</button>
+      <button id="standBtn" disabled>Stand</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="scoreboard">
+      Wins: <span id="wins">0</span> |
+      Losses: <span id="losses">0</span> |
+      Pushes: <span id="pushes">0</span>
+    </div>
+  </div>
+
+  <script>
+    const suits = ["♠", "♥", "♦", "♣"];
+    const ranks = [
+      { name: "A", value: 11 },
+      { name: "2", value: 2 },
+      { name: "3", value: 3 },
+      { name: "4", value: 4 },
+      { name: "5", value: 5 },
+      { name: "6", value: 6 },
+      { name: "7", value: 7 },
+      { name: "8", value: 8 },
+      { name: "9", value: 9 },
+      { name: "10", value: 10 },
+      { name: "J", value: 10 },
+      { name: "Q", value: 10 },
+      { name: "K", value: 10 }
+    ];
+
+    let deck = [];
+    let playerHand = [];
+    let dealerHand = [];
+    let wins = 0;
+    let losses = 0;
+    let pushes = 0;
+    let gameOver = false;
+    let playerStands = false;
+
+    const dealerCardsDiv = document.getElementById("dealerCards");
+    const playerCardsDiv = document.getElementById("playerCards");
+    const dealerScoreSpan = document.getElementById("dealerScore");
+    const playerScoreSpan = document.getElementById("playerScore");
+    const statusDiv = document.getElementById("status");
+    const dealBtn = document.getElementById("dealBtn");
+    const hitBtn = document.getElementById("hitBtn");
+    const standBtn = document.getElementById("standBtn");
+    const winsSpan = document.getElementById("wins");
+    const lossesSpan = document.getElementById("losses");
+    const pushesSpan = document.getElementById("pushes");
+
+    function createDeck() {
+      deck = [];
+      for (let s of suits) {
+        for (let r of ranks) {
+          deck.push({ suit: s, rank: r.name, value: r.value });
+        }
+      }
+      shuffleDeck();
+    }
+
+    function shuffleDeck() {
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+    }
+
+    function dealCard(hand) {
+      if (deck.length === 0) createDeck();
+      const card = deck.pop();
+      hand.push(card);
+    }
+
+    function calculateScore(hand) {
+      let total = 0;
+      let aces = 0;
+      for (let card of hand) {
+        total += card.value;
+        if (card.rank === "A") aces++;
+      }
+      while (total > 21 && aces > 0) {
+        total -= 10;
+        aces--;
+      }
+      return total;
+    }
+
+    function renderHand(hand, container) {
+      container.innerHTML = "";
+      hand.forEach(card => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.textContent = card.rank + card.suit;
+        container.appendChild(div);
+      });
+    }
+
+    function updateScores() {
+      const playerScore = calculateScore(playerHand);
+      const dealerScore = calculateScore(dealerHand);
+      playerScoreSpan.textContent = playerScore;
+      dealerScoreSpan.textContent = dealerScore;
+    }
+
+    function startGame() {
+      createDeck();
+      playerHand = [];
+      dealerHand = [];
+      gameOver = false;
+      playerStands = false;
+      statusDiv.textContent = "";
+
+      dealCard(playerHand);
+      dealCard(dealerHand);
+      dealCard(playerHand);
+      dealCard(dealerHand);
+
+      renderHand(playerHand, playerCardsDiv);
+      renderHand(dealerHand, dealerCardsDiv);
+      updateScores();
+
+      hitBtn.disabled = false;
+      standBtn.disabled = false;
+    }
+
+    function checkForEndOfGame() {
+      const playerScore = calculateScore(playerHand);
+      const dealerScore = calculateScore(dealerHand);
+
+      if (playerScore > 21) {
+        statusDiv.textContent = "Player busts! Dealer wins.";
+        losses++;
+        gameOver = true;
+      } else if (dealerScore > 21) {
+        statusDiv.textContent = "Dealer busts! Player wins.";
+        wins++;
+        gameOver = true;
+      } else if (playerStands) {
+        if (dealerScore > playerScore) {
+          statusDiv.textContent = "Dealer wins.";
+          losses++;
+        } else if (dealerScore < playerScore) {
+          statusDiv.textContent = "Player wins!";
+          wins++;
+        } else {
+          statusDiv.textContent = "Push (tie).";
+          pushes++;
+        }
+        gameOver = true;
+      }
+
+      if (gameOver) {
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        updateScoreboard();
+      }
+    }
+
+    function dealerPlay() {
+      let dealerScore = calculateScore(dealerHand);
+      while (dealerScore < 17) {
+        dealCard(dealerHand);
+        dealerScore = calculateScore(dealerHand);
+      }
+      renderHand(dealerHand, dealerCardsDiv);
+      updateScores();
+      checkForEndOfGame();
+    }
+
+    function updateScoreboard() {
+      winsSpan.textContent = wins;
+      lossesSpan.textContent = losses;
+      pushesSpan.textContent = pushes;
+    }
+
+    dealBtn.addEventListener("click", () => {
+      startGame();
+    });
+
+    hitBtn.addEventListener("click", () => {
+      if (gameOver) return;
+      dealCard(playerHand);
+      renderHand(playerHand, playerCardsDiv);
+      updateScores();
+      checkForEndOfGame();
+    });
+
+    standBtn.addEventListener("click", () => {
+      if (gameOver) return;
+      playerStands = true;
+      dealerPlay();
+    });
+
+    // Initial deck setup
+    createDeck();
+  </script>
+</body>
+</html>

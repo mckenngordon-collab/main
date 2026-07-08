@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Pong Canvas</title>
+    <style>
+        /* Center the canvas on the screen and make the background dark */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        canvas {
+            background-color: #000;
+            border: 2px solid #fff;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="pongCanvas" width="800" height="400"></canvas>
+
+    <script>
+        // Setup Canvas
+        const canvas = document.getElementById("pongCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // Game Objects
+        const ball = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 10,
+            speedX: 1,
+            speedY: 1,
+            color: "white"
+        };
+
+        const paddleWidth = 10;
+        const paddleHeight = 30;
+
+        const leftPaddle = {
+            x: 0,
+            y: canvas.height / 2 - paddleHeight / 2,
+            width: paddleWidth,
+            height: paddleHeight,
+            color: "white"
+        };
+
+        const rightPaddle = {
+            x: canvas.width - paddleWidth,
+            y: canvas.height / 2 - paddleHeight / 2,
+            width: paddleWidth,
+            height: paddleHeight,
+            color: "white"
+        };
+
+        // Reset ball to the center if it ever goes out of bounds
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.speedX = -ball.speedX; 
+        }
+
+        // Update game state (Physics and AI)
+        function update() {
+            // Move the ball
+            ball.x += ball.speedX;
+            ball.y += ball.speedY;
+
+            // Bounce off top and bottom walls
+            if (ball.y - ball.radius < 0 || ball.y + ball.radius > canvas.height) {
+                ball.speedY = -ball.speedY;
+            }
+
+            // Left paddle collision
+            if (ball.x - ball.radius < leftPaddle.x + leftPaddle.width &&
+                ball.y > leftPaddle.y &&
+                ball.y < leftPaddle.y + leftPaddle.height) {
+                ball.speedX = Math.abs(ball.speedX); // Force positive movement
+                ball.x = leftPaddle.x + leftPaddle.width + ball.radius; // Prevent ball from getting stuck
+            }
+
+            // Right paddle collision
+            if (ball.x + ball.radius > rightPaddle.x &&
+                ball.y > rightPaddle.y &&
+                ball.y < rightPaddle.y + rightPaddle.height) {
+                ball.speedX = -Math.abs(ball.speedX); // Force negative movement
+                ball.x = rightPaddle.x - ball.radius; // Prevent ball from getting stuck
+            }
+
+            // AI Logic: Both paddles automatically track the ball's Y position
+            leftPaddle.y = ball.y - leftPaddle.height / 2;
+            rightPaddle.y = ball.y - rightPaddle.height / 2;
+
+            // Constrain paddles so they don't slide off the screen
+            leftPaddle.y = Math.max(0, Math.min(canvas.height - leftPaddle.height, leftPaddle.y));
+            rightPaddle.y = Math.max(0, Math.min(canvas.height - rightPaddle.height, rightPaddle.y));
+
+            // Out of bounds detection (failsafe)
+            if (ball.x < 0 || ball.x > canvas.width) {
+                resetBall();
+            }
+        }
+
+        // Render game state to the canvas
+        function draw() {
+            // Clear the canvas
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw the dashed center line
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+            ctx.setLineDash([10, 15]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash for any future rendering
+
+            // Draw the paddles
+            ctx.fillStyle = leftPaddle.color;
+            ctx.fillRect(leftPaddle.x, leftPaddle.y, leftPaddle.width, leftPaddle.height);
+            
+            ctx.fillStyle = rightPaddle.color;
+            ctx.fillRect(rightPaddle.x, rightPaddle.y, rightPaddle.width, rightPaddle.height);
+
+            // Draw the ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = ball.color;
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        // Main game loop
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop); // Keeps the loop running at the screen's refresh rate
+        }
+
+        // Start the game
+        loop();
+    </script>
+</body>
+</html>
